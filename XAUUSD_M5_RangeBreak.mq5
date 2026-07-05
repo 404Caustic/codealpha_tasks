@@ -244,8 +244,8 @@ void OpenBuyPosition(double atr, double entryPrice)
       trailingStopActive = false;
       lastTradeDate = TimeCurrent();
       
-      SendNotification("BUY signal triggered! Entry: " + DoubleToString(entryPrice, 2) + 
-                       " | SL: " + DoubleToString(slPrice, 2) + " | TP: " + DoubleToString(tpPrice, 2));
+      SendNotificationMessage("BUY signal triggered! Entry: " + DoubleToString(entryPrice, 2) + 
+                              " | SL: " + DoubleToString(slPrice, 2) + " | TP: " + DoubleToString(tpPrice, 2));
    }
    else
    {
@@ -291,8 +291,8 @@ void OpenSellPosition(double atr, double entryPrice)
       trailingStopActive = false;
       lastTradeDate = TimeCurrent();
       
-      SendNotification("SELL signal triggered! Entry: " + DoubleToString(entryPrice, 2) + 
-                       " | SL: " + DoubleToString(slPrice, 2) + " | TP: " + DoubleToString(tpPrice, 2));
+      SendNotificationMessage("SELL signal triggered! Entry: " + DoubleToString(entryPrice, 2) + 
+                              " | SL: " + DoubleToString(slPrice, 2) + " | TP: " + DoubleToString(tpPrice, 2));
    }
    else
    {
@@ -329,7 +329,7 @@ void ManageOpenPositions()
             Print("Break-even set for BUY position");
             breakEvenSet = true;
             trailingStopActive = true;
-            SendNotification("Break-even activated for BUY position!");
+            SendNotificationMessage("Break-even activated for BUY position!");
          }
       }
       
@@ -358,7 +358,7 @@ void ManageOpenPositions()
             Print("Break-even set for SELL position");
             breakEvenSet = true;
             trailingStopActive = true;
-            SendNotification("Break-even activated for SELL position!");
+            SendNotificationMessage("Break-even activated for SELL position!");
          }
       }
       
@@ -385,33 +385,27 @@ void RecordPreSessionRange()
    if(preSessionRecorded)
       return;  // Already recorded for this session
    
-   // Get high and low from the pre-session period
-   double high = SymbolInfoDouble(Symbol(), SYMBOL_SESSION_PRICE_LIMIT_MAX);
-   double low = SymbolInfoDouble(Symbol(), SYMBOL_SESSION_PRICE_LIMIT_MIN);
+   // Get high and low from price history
+   MqlRates rates[];
+   int copied = CopyRates(Symbol(), PERIOD_M5, 0, 12, rates);  // Last 60 minutes (12 x 5min bars)
    
-   // Alternative: Get from price history if limits not available
-   if(high == 0 || low == 0)
+   if(copied > 0)
    {
-      MqlRates rates[];
-      int copied = CopyRates(Symbol(), PERIOD_M5, 0, 12, rates);  // Last 60 minutes (12 x 5min bars)
-      if(copied > 0)
+      double high = rates[0].high;
+      double low = rates[0].low;
+      
+      for(int i = 0; i < copied; i++)
       {
-         high = rates[copied - 1].high;
-         low = rates[copied - 1].low;
-         
-         for(int i = 0; i < copied; i++)
-         {
-            if(rates[i].high > high) high = rates[i].high;
-            if(rates[i].low < low) low = rates[i].low;
-         }
+         if(rates[i].high > high) high = rates[i].high;
+         if(rates[i].low < low) low = rates[i].low;
       }
+      
+      preSessionHigh = high;
+      preSessionLow = low;
+      preSessionRecorded = true;
+      
+      Print("Pre-session range recorded - High: ", preSessionHigh, " Low: ", preSessionLow);
    }
-   
-   preSessionHigh = high;
-   preSessionLow = low;
-   preSessionRecorded = true;
-   
-   Print("Pre-session range recorded - High: ", preSessionHigh, " Low: ", preSessionLow);
 }
 
 //+------------------------------------------------------------------+
@@ -480,6 +474,7 @@ double GetATR()
    if(CopyBuffer(handle, 0, 0, 1, buffer) < 1)
    {
       Print("Error copying ATR buffer");
+      IndicatorRelease(handle);
       return 0;
    }
    
@@ -506,6 +501,7 @@ double GetEMA(int period)
    if(CopyBuffer(handle, 0, 0, 1, buffer) < 1)
    {
       Print("Error copying EMA buffer");
+      IndicatorRelease(handle);
       return 0;
    }
    
@@ -547,13 +543,18 @@ bool IsPreSessionTime()
       istMin -= 60;
    }
    
-   // Check if in pre-session range
-   int preStartHour = StringToTime("1970.01.01 " + PreSessionStart);
-   int preEndHour = StringToTime("1970.01.01 " + PreSessionEnd);
+   // Convert time strings to hours and minutes
+   int preStartPos = StringFind(PreSessionStart, ":");
+   int preStartHour = (int)StringToInteger(StringSubstr(PreSessionStart, 0, preStartPos));
+   int preStartMin = (int)StringToInteger(StringSubstr(PreSessionStart, preStartPos + 1));
+   
+   int preEndPos = StringFind(PreSessionEnd, ":");
+   int preEndHour = (int)StringToInteger(StringSubstr(PreSessionEnd, 0, preEndPos));
+   int preEndMin = (int)StringToInteger(StringSubstr(PreSessionEnd, preEndPos + 1));
    
    int currentTime = istHour * 60 + istMin;
-   int startTime = Hour(preStartHour) * 60 + Minute(preStartHour);
-   int endTime = Hour(preEndHour) * 60 + Minute(preEndHour);
+   int startTime = preStartHour * 60 + preStartMin;
+   int endTime = preEndHour * 60 + preEndMin;
    
    return (currentTime >= startTime && currentTime < endTime);
 }
@@ -576,13 +577,18 @@ bool IsTradingSessionTime()
       istMin -= 60;
    }
    
-   // Check if in trading session range
-   int tradStartHour = StringToTime("1970.01.01 " + TradingSessionStart);
-   int tradEndHour = StringToTime("1970.01.01 " + TradingSessionEnd);
+   // Convert time strings to hours and minutes
+   int tradStartPos = StringFind(TradingSessionStart, ":");
+   int tradStartHour = (int)StringToInteger(StringSubstr(TradingSessionStart, 0, tradStartPos));
+   int tradStartMin = (int)StringToInteger(StringSubstr(TradingSessionStart, tradStartPos + 1));
+   
+   int tradEndPos = StringFind(TradingSessionEnd, ":");
+   int tradEndHour = (int)StringToInteger(StringSubstr(TradingSessionEnd, 0, tradEndPos));
+   int tradEndMin = (int)StringToInteger(StringSubstr(TradingSessionEnd, tradEndPos + 1));
    
    int currentTime = istHour * 60 + istMin;
-   int startTime = Hour(tradStartHour) * 60 + Minute(tradStartHour);
-   int endTime = Hour(tradEndHour) * 60 + Minute(tradEndHour);
+   int startTime = tradStartHour * 60 + tradStartMin;
+   int endTime = tradEndHour * 60 + tradEndMin;
    
    return (currentTime >= startTime && currentTime < endTime);
 }
@@ -593,18 +599,31 @@ bool IsTradingSessionTime()
 int CountTradesToday()
 {
    int count = 0;
-   int total = PositionsTotal();
+   int total = HistoryDealsTotal();
    
-   for(int i = 0; i < total; i++)
+   // Count closed deals today with this EA's magic number
+   for(int i = total - 1; i >= 0; i--)
    {
-      if(!positionInfo.SelectByIndex(i))
+      ulong dealTicket = HistoryDealGetTicket(i);
+      
+      if(dealTicket == 0)
          continue;
       
-      if(positionInfo.Magic() == trade.RequestMagic() && 
-         positionInfo.Symbol() == Symbol())
+      if(HistoryDealGetInteger(dealTicket, DEAL_MAGIC) == trade.RequestMagic() &&
+         HistoryDealGetString(dealTicket, DEAL_SYMBOL) == Symbol())
       {
-         // Check if position opened today
-         if(TimeDayOfWeek(positionInfo.Time()) == TimeDayOfWeek(TimeCurrent()))
+         datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+         
+         // Check if deal is from today
+         MqlDateTime dealDateTime;
+         TimeToStruct(dealTime, dealDateTime);
+         
+         MqlDateTime currentDateTime;
+         TimeToStruct(TimeCurrent(), currentDateTime);
+         
+         if(dealDateTime.year == currentDateTime.year &&
+            dealDateTime.mon == currentDateTime.mon &&
+            dealDateTime.day == currentDateTime.day)
          {
             count++;
          }
@@ -637,7 +656,16 @@ void CalculateDailyPnL()
       {
          datetime dealTime = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
          
-         if(TimeDayOfWeek(dealTime) == TimeDayOfWeek(TimeCurrent()))
+         // Check if deal is from today
+         MqlDateTime dealDateTime;
+         TimeToStruct(dealTime, dealDateTime);
+         
+         MqlDateTime currentDateTime;
+         TimeToStruct(TimeCurrent(), currentDateTime);
+         
+         if(dealDateTime.year == currentDateTime.year &&
+            dealDateTime.mon == currentDateTime.mon &&
+            dealDateTime.day == currentDateTime.day)
          {
             double profit = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
             double commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
@@ -654,7 +682,15 @@ void CalculateDailyPnL()
 //+------------------------------------------------------------------+
 void CheckNewDay()
 {
-   if(TimeDayOfWeek(lastTradeDate) != TimeDayOfWeek(TimeCurrent()))
+   MqlDateTime lastDateTime;
+   TimeToStruct(lastTradeDate, lastDateTime);
+   
+   MqlDateTime currentDateTime;
+   TimeToStruct(TimeCurrent(), currentDateTime);
+   
+   if(lastDateTime.year != currentDateTime.year ||
+      lastDateTime.mon != currentDateTime.mon ||
+      lastDateTime.day != currentDateTime.day)
    {
       preSessionRecorded = false;
       preSessionHigh = 0;
@@ -754,9 +790,9 @@ void UpdateDashboard()
 }
 
 //+------------------------------------------------------------------+
-//| Send notification (push or alert)                                |
+//| Send notification (push or alert) - FIXED: Renamed to avoid recursion|
 //+------------------------------------------------------------------+
-void SendNotification(string message)
+void SendNotificationMessage(string message)
 {
    if(EnableNotifications)
    {
